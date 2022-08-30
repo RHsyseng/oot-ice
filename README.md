@@ -5,20 +5,46 @@ This is a repo to build Out Of Tree Intel ice driver and load it on a OCP cluste
 It builds the driver inside the Driver Toolkit image and pushes an image containing the kernel module to a registry.
 
 ### Prereq
-- Set `KUBECONFIG` in your env
-- Copy your pull secret in `$PWD/pull-secret.txt`.
-- Change the `LOCAL_REGISTRY` in `build.sh`  to point to a registry that is reachable from your cluster and that your pull secret has credentials for.
-- Update the registry in `mc-oot-ice.yaml` to point to the same registry as above
+- Set `REGISTRY` in your env.  This is the registry the driver container will be pushed to and that the OCP cluster will pull the driver container from.
+  In this sense, your default pull secret should be able to allow you to push to this registry on the build machine.
+  Your cluster should also have the pull secret of this registry so that it can pull images from this registry.
+- Set `KUBECONFIG` in your env.
+  The OCP version of your `KUBECONFIG` cluster will be used to build the driver and it will be used to apply the generated MachineConfig
+
+
 
 ### Build
+The script supports building the ice driver against different kernels.
 
+To build against the standard kernel of the OCP version of the cluster in `KUBECONFIG`
 ```bash
-./build.sh <ice-driver-version>  <ocp-version>
+./oot-ice.sh <ice-driver-version>
+```
+
+To build against the real time kernel of the OCP version of the cluster in `KUBECONFIG`
+```bash
+./oot-ice.sh -r <ice-driver-version>
+```
+
+To build against the standard kernel of a specific OCP version.
+```bash
+./oot-ice.sh -o <ocp_version> <ice-driver-version>
+```
+
+To build against the real time kernel of a specific OCP version.
+```bash
+./oot-ice.sh -r -o <ocp_version> <ice-driver-version>
+```
+
+To build against a custom kernel's supplied devel package.
+```bash
+./oot-ice.sh -c <custom_kernel_devel_rpm> -k <kernel_version> <ice-driver-version>
 ```
 
 ### Deploy
 
-A `MachineConfig` is suplied to deploy the driver container to the cluster.
+Once the build finishes successfully, a `MachineConfig` to deploy the driver container to the cluster is generated.
+We can now apply this `MachineConfig` to deploy the driver.
 
 ```bash
 oc apply -f mc-oot-ice.yaml

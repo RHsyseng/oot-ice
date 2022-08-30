@@ -6,12 +6,12 @@ WORKDIR /build/
 
 ARG DRIVER_VER
 ARG KERNEL_VERSION
-ARG MIRROR
+ARG CUSTOM_KERNEL
 
-ARG GET_DEVEL_RPM
-ENV GET_DEVEL_RPM=$GET_DEVEL_RPM
-RUN if [[ ${GET_DEVEL_RPM} == "yes" ]]; then \
-wget http://${MIRROR}/kernel-devel-${KERNEL_VERSION}.rpm && rpm -Uvh kernel-devel-${KERNEL_VERSION}.rpm; \
+COPY *${CUSTOM_KERNEL} .
+ENV CUSTOM_KERNEL=$CUSTOM_KERNEL
+RUN if [[ ! -z ${CUSTOM_KERNEL} ]]; then \
+rpm -Uvh ${CUSTOM_KERNEL}; \
 fi
 
 RUN wget https://netix.dl.sourceforge.net/project/e1000/ice%20stable/$DRIVER_VER/ice-$DRIVER_VER.tar.gz
@@ -25,7 +25,7 @@ FROM ${IMAGE}
 ARG DRIVER_VER
 ARG KERNEL_VERSION
 
-RUN microdnf install --disablerepo=* --enablerepo=ubi-8-baseos -y kmod
+RUN microdnf install --disablerepo=* --enablerepo=ubi-8-baseos -y kmod; microdnf clean all
 
 COPY --from=builder /build/ice-$DRIVER_VER/src/ice.ko /ice-driver/
 COPY --from=builder /build/ice-$DRIVER_VER/ddp/ /ddp/
