@@ -5,6 +5,7 @@ FROM ${BUILD_IMAGE} AS builder
 WORKDIR /build/
 
 ARG DRIVER_VER
+ARG DRIVER_SRC
 ARG KERNEL_VERSION
 ARG CUSTOM_KERNEL
 
@@ -14,8 +15,7 @@ RUN if [[ ! -z ${CUSTOM_KERNEL} ]]; then \
 rpm -Uvh ${CUSTOM_KERNEL}; \
 fi
 
-RUN wget https://netix.dl.sourceforge.net/project/e1000/ice%20stable/$DRIVER_VER/ice-$DRIVER_VER.tar.gz
-RUN tar zxf ice-$DRIVER_VER.tar.gz
+ADD $DRIVER_SRC/ ice-$DRIVER_VER
 WORKDIR ice-$DRIVER_VER/src
 
 RUN BUILD_KERNEL=$KERNEL_VERSION KSRC=/usr/src/kernels/$KERNEL_VERSION make

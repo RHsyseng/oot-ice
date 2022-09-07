@@ -37,8 +37,15 @@ To build against the real time kernel of a specific OCP version.
 ```
 
 To build against a custom kernel's supplied devel package.
+The kernel-devel package file must be in the current directory.
 ```bash
 ./oot-ice.sh -c <custom_kernel_devel_rpm> -k <kernel_version> <ice-driver-version>
+```
+
+To apply patches, use the -p option. All the patches found under the requested driver's folder will be applied.
+
+```bash
+./oot-ice.sh -p <ice-driver-version>
 ```
 
 ### Deploy

@@ -1,0 +1,52 @@
+From b59b0f8d262d88918ee92493deaa4aff02579015 Mon Sep 17 00:00:00 2001
+From: Michal Michalik <michal.michalik@intel.com>
+Date: Aug. 23, 2022, 7:24 p.m. UTC
+Subject: [PATCH] ice: Add set_termios tty operations handle to GNSS
+
+Some third party tools (ex. ubxtool) tries to change GNSS TTY parameters
+(ex. speed). While being optional implementation, without set_termios
+handle this operation fails and prevent those third party tools from
+working. TTY interface in ice driver is virtual and don't need any
+change on set_termios, so is left empty. Add this mock to support all
+Linux TTY APIs.
+
+Fixes: 43113ff73453 ("ice: add TTY for GNSS module for E810T device")
+Signed-off-by: Michal Michalik <michal.michalik@intel.com>
+---
+ src/ice_gnss.c | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/src/ice_gnss.c b/src/ice_gnss.c
+index aa2c55b..4623831 100644
+--- a/src/ice_gnss.c
++++ b/src/ice_gnss.c
+@@ -424,11 +424,26 @@ static int ice_gnss_tty_write_room(struct tty_struct *tty)
+ 	return ICE_GNSS_TTY_WRITE_BUF;
+ }
+ 
++/**
++ * ice_gnss_tty_set_termios - mock for set_termios tty operations
++ * @tty: pointer to the tty_struct
++ * @new_termios: pointer to the new termios parameters
++ */
++static void
++ice_gnss_tty_set_termios(struct tty_struct *tty, struct ktermios *new_termios)
++{
++	/* Some 3rd party tools (ex. ubxtool) want to change the TTY parameters.
++	 * In our virtual interface (I2C communication over FW AQ) we don't have
++	 * to change anything, but we need to implement it to unblock tools.
++	 */
++}
++
+ static const struct tty_operations tty_gps_ops = {
+ 	.open =		ice_gnss_tty_open,
+ 	.close =	ice_gnss_tty_close,
+ 	.write =	ice_gnss_tty_write,
+ 	.write_room =	ice_gnss_tty_write_room,
++	.set_termios =  ice_gnss_tty_set_termios,
+ };
+ 
+ /**
+-- 
+2.34.3
+

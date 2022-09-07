@@ -29,6 +29,10 @@ cat <<- END_OF_HELP
           The RPM file must be in the current directory.
       -k: Version of the custom kernel given by the -c option.
           This argument must be specified if a '-c' is specified.
+      -p: Apply patches found in the patches directory.
+          Patches must be named nnnn-Patch-Name.patch and will be applied in the
+          order of the number given in 'nnnn'
+
 END_OF_HELP
 }
 
@@ -39,10 +43,20 @@ build_image () {
   echo "Building for kernel:${KERNEL_VER} on OCP:${OCP_VER}"
   echo "DTKI for OCP:${OCP_VER} : ${DTK_IMAGE}"
 
+  TEMP_DIR=$(basename $(mktemp -d -p .))
+
+  curl https://netix.dl.sourceforge.net/project/e1000/ice%20stable/${DRIVER_VER}/ice-${DRIVER_VER}.tar.gz -o ${TEMP_DIR}/ice-${DRIVER_VER}.tar.gz
+  tar xf ${TEMP_DIR}/ice-${DRIVER_VER}.tar.gz -C ${TEMP_DIR}/
+  DRIVER_SRC=${TEMP_DIR}/ice-${DRIVER_VER}
+  if [[ ${APPLY_PATCHES} == "yes" ]]; then
+    for f in `find $PWD/patches/${DRIVER_VER} -type f -name '*.patch'`; do echo "Applying patch $f"; patch -d ${DRIVER_SRC} -p1 < "$f"; done;
+  fi
+
   podman build -f Dockerfile --no-cache . \
     --build-arg IMAGE=${BASE_IMAGE} \
     --build-arg BUILD_IMAGE=${DTK_IMAGE} \
-    --build-arg DRIVER_VER=${ICE_DRIVER_VER} \
+    --build-arg DRIVER_VER=${DRIVER_VER} \
+    --build-arg DRIVER_SRC=${DRIVER_SRC} \
     --build-arg KERNEL_VERSION=${KERNEL_VER} \
     --build-arg CUSTOM_KERNEL=${CUSTOM_KERNEL} \
     -t ${REGISTRY}/${DRIVER_IMAGE}:${TAG}
@@ -50,11 +64,13 @@ build_image () {
 
   podman push --tls-verify=false ${REGISTRY}/${DRIVER_IMAGE}:${TAG}
   exit_on_error $?
+  rm -rf ${TEMP_DIR}
 }
 
 generate_machine_config () {
 
   local service=$(base64 -w 0 service.sh)
+  local ptp_config=$(base64 -w 0 ptp-config.sh)
 
 cat <<- END_OF_MACHINE_CONFIG > mc-oot-ice.yaml
 apiVersion: machineconfiguration.openshift.io/v1
@@ -74,6 +90,11 @@ spec:
           filesystem: root
           mode: 493
           path: /usr/local/bin/oot-ice
+        - contents:
+            source: 'data:text/plain;charset=us-ascii;base64,$ptp_config'
+          filesystem: root
+          mode: 493
+          path: /usr/local/bin/ptp-config
     systemd:
       units:
       - contents: |
@@ -93,6 +114,7 @@ spec:
           # Use bash to workaround https://github.com/coreos/rpm-ostree/issues/1936
           ExecStart=/usr/bin/bash -c "/usr/local/bin/oot-ice load  ${REGISTRY}/${DRIVER_IMAGE}"
           ExecStop=/usr/bin/bash -c "/usr/local/bin/oot-ice unload ${REGISTRY}/${DRIVER_IMAGE}"
+          ExecStartPost=/usr/bin/bash -c "/usr/local/bin/ptp-config"
           StandardOutput=journal+console
 
           [Install]
@@ -106,6 +128,7 @@ END_OF_MACHINE_CONFIG
 
 # Default values
 CUSTOM_KERNEL=""
+APPLY_PATCHES="no"
 KERNEL_VER=""
 BUILD_RT="no"
 OCP_VER=""
@@ -117,12 +140,13 @@ if [ -z ${REGISTRY} ]; then
    exit 1
 fi
 
-while getopts hrc:k:o: ARG ; do
+while getopts hrc:k:o:p ARG ; do
   case $ARG in
     o ) OCP_VER=$OPTARG ;;
     r ) BUILD_RT="yes" ;;
     c ) CUSTOM_KERNEL=$OPTARG ;;
     k ) KERNEL_VER=$OPTARG ;;
+    p ) APPLY_PATCHES="yes" ;;
     h ) print_usage ; exit 0 ;;
     ? ) print_usage ; exit 1 ;;
   esac
@@ -133,7 +157,7 @@ if [ $# -lt 1 ]; then
   print_usage
   exit 1
 fi
-ICE_DRIVER_VER=$1; shift
+DRIVER_VER=$1; shift
 
 # Try to get the OCP version from the cluster in KUBECONFIG
 if [ -z ${OCP_VER} ]; then
@@ -146,7 +170,7 @@ if [ -z ${OCP_VER} ]; then
 fi
 
 
-DRIVER_IMAGE="ice-${ICE_DRIVER_VER}"
+DRIVER_IMAGE="ice-${DRIVER_VER}"
 
 if [ ! -z ${KERNEL_VER} ]; then
   # validate that the custom kernel rpm is here
