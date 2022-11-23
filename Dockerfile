@@ -25,7 +25,7 @@ FROM ${IMAGE}
 ARG DRIVER_VER
 ARG KERNEL_VERSION
 
-RUN microdnf install --disablerepo=* --enablerepo=ubi-8-baseos -y kmod; microdnf clean all
+RUN microdnf install --disablerepo=* --enablerepo=ubi-8-baseos-rpms -y kmod; microdnf clean all
 
 COPY --from=builder /build/ice-$DRIVER_VER/src/ice.ko /ice-driver/
 COPY --from=builder /build/ice-$DRIVER_VER/ddp/ /ddp/
