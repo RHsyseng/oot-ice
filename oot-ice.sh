@@ -62,9 +62,13 @@ build_image () {
     -t ${REGISTRY}/${DRIVER_IMAGE}:${TAG}
   exit_on_error $?
 
+}
+
+push_image () {
   podman push --tls-verify=false ${REGISTRY}/${DRIVER_IMAGE}:${TAG}
   exit_on_error $?
   rm -rf ${TEMP_DIR}
+
 }
 
 generate_machine_config () {
@@ -191,3 +195,5 @@ fi
 build_image
 
 generate_machine_config
+
+push_image
