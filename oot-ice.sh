@@ -13,7 +13,7 @@ exit_on_error () {
 
 print_usage () {
 cat <<- END_OF_HELP
-    usage: $(basename $0) [-h] [-r] [-c] [-k] <ice_vers>
+    usage: $(basename $0) [-h] [-r] [-c] [-k] [-s] <ice_version>
 
     The environment variable REGISTRY must be set.
     This is the registry that the driver container will be pushed to.
@@ -32,6 +32,8 @@ cat <<- END_OF_HELP
       -p: Apply patches found in the patches directory.
           Patches must be named nnnn-Patch-Name.patch and will be applied in the
           order of the number given in 'nnnn'
+      -s: Use custom source code for ice_driver. Full path to source must be
+          provided.
 
 END_OF_HELP
 }
@@ -45,8 +47,14 @@ build_image () {
 
   TEMP_DIR=$(basename $(mktemp -d -p .))
 
-  curl https://netix.dl.sourceforge.net/project/e1000/ice%20stable/${DRIVER_VER}/ice-${DRIVER_VER}.tar.gz -o ${TEMP_DIR}/ice-${DRIVER_VER}.tar.gz
-  tar xf ${TEMP_DIR}/ice-${DRIVER_VER}.tar.gz -C ${TEMP_DIR}/
+  if [[ -z ${CUSTOM_ICE_DRIVER} ]]; then
+    curl https://netix.dl.sourceforge.net/project/e1000/ice%20stable/${DRIVER_VER}/ice-${DRIVER_VER}.tar.gz -o ${TEMP_DIR}/ice-${DRIVER_VER}.tar.gz
+    tar xf ${TEMP_DIR}/ice-${DRIVER_VER}.tar.gz -C ${TEMP_DIR}/
+  else
+    #copy custom ice driver to temp dir
+    cp -r ${CUSTOM_ICE_DRIVER} ${TEMP_DIR}/.
+  fi
+
   DRIVER_SRC=${TEMP_DIR}/ice-${DRIVER_VER}
   if [[ ${APPLY_PATCHES} == "yes" ]]; then
     for f in `find $PWD/patches/${DRIVER_VER} -type f -name '*.patch'`; do echo "Applying patch $f"; patch -d ${DRIVER_SRC} -p1 < "$f"; done;
@@ -134,6 +142,7 @@ END_OF_MACHINE_CONFIG
 CUSTOM_KERNEL=""
 APPLY_PATCHES="no"
 KERNEL_VER=""
+CUSTOM_ICE_DRIVER=""
 BUILD_RT="no"
 OCP_VER=""
 KUBECONFIG=${KUBECONFIG:-""}
@@ -144,13 +153,14 @@ if [ -z ${REGISTRY} ]; then
    exit 1
 fi
 
-while getopts hrc:k:o:p ARG ; do
+while getopts hrc:k:o:s:p ARG ; do
   case $ARG in
     o ) OCP_VER=$OPTARG ;;
     r ) BUILD_RT="yes" ;;
     c ) CUSTOM_KERNEL=$OPTARG ;;
     k ) KERNEL_VER=$OPTARG ;;
     p ) APPLY_PATCHES="yes" ;;
+    s ) CUSTOM_ICE_DRIVER=$OPTARG ;;
     h ) print_usage ; exit 0 ;;
     ? ) print_usage ; exit 1 ;;
   esac
