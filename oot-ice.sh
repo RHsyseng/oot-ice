@@ -2,6 +2,9 @@
 
 set -eu
 
+
+## udev rules just in case for RHEL9
+
 exit_on_error () {
   local rc="$1"
 
@@ -36,23 +39,22 @@ cat <<- END_OF_HELP
 END_OF_HELP
 }
 
+
 build_image () {
-  BASE_IMAGE='registry.access.redhat.com/ubi8-minimal:latest'
-  TAG=${KERNEL_VER}
   DTK_IMAGE=$(oc adm release info --image-for=driver-toolkit quay.io/openshift-release-dev/ocp-release:${OCP_VER}-x86_64)
   echo "Building for kernel:${KERNEL_VER} on OCP:${OCP_VER}"
   echo "DTKI for OCP:${OCP_VER} : ${DTK_IMAGE}"
 
   TEMP_DIR=$(basename $(mktemp -d -p .))
 
-  curl https://netix.dl.sourceforge.net/project/e1000/ice%20stable/${DRIVER_VER}/ice-${DRIVER_VER}.tar.gz -o ${TEMP_DIR}/ice-${DRIVER_VER}.tar.gz
-  tar xf ${TEMP_DIR}/ice-${DRIVER_VER}.tar.gz -C ${TEMP_DIR}/
+  wget https://github.com/intel/ethernet-linux-ice/releases/download/v${DRIVER_VER}/ice-${DRIVER_VER}.tar.gz  -O ${TEMP_DIR}/ice-${DRIVER_VER}.tar.gz
+  tar xzf ${TEMP_DIR}/ice-${DRIVER_VER}.tar.gz -C ${TEMP_DIR}/
   DRIVER_SRC=${TEMP_DIR}/ice-${DRIVER_VER}
   if [[ ${APPLY_PATCHES} == "yes" ]]; then
     for f in `find $PWD/patches/${DRIVER_VER} -type f -name '*.patch'`; do echo "Applying patch $f"; patch -d ${DRIVER_SRC} -p1 < "$f"; done;
   fi
 
-  podman build -f Dockerfile --no-cache . \
+  podman build --no-cache -f Dockerfile . \
     --build-arg IMAGE=${BASE_IMAGE} \
     --build-arg BUILD_IMAGE=${DTK_IMAGE} \
     --build-arg DRIVER_VER=${DRIVER_VER} \
@@ -60,10 +62,8 @@ build_image () {
     --build-arg KERNEL_VERSION=${KERNEL_VER} \
     --build-arg CUSTOM_KERNEL=${CUSTOM_KERNEL} \
     -t ${REGISTRY}/${DRIVER_IMAGE}:${TAG}
-  exit_on_error $?
 
 }
-
 push_image () {
   podman push --tls-verify=false ${REGISTRY}/${DRIVER_IMAGE}:${TAG}
   exit_on_error $?
@@ -104,11 +104,8 @@ spec:
       - contents: |
           [Unit]
           Description=out-of-tree driver loader
-          # Start after the network is up
           Wants=network-online.target
           After=network-online.target
-          # Also after docker.service (no effect on systems without docker)
-          After=docker.service
           # Before kubelet.service (no effect on systems without kubernetes)
           Before=kubelet.service
 
@@ -116,8 +113,8 @@ spec:
           Type=oneshot
           RemainAfterExit=true
           # Use bash to workaround https://github.com/coreos/rpm-ostree/issues/1936
-          ExecStart=/usr/bin/bash -c "/usr/local/bin/oot-ice load  ${REGISTRY}/${DRIVER_IMAGE}"
-          ExecStop=/usr/bin/bash -c "/usr/local/bin/oot-ice unload ${REGISTRY}/${DRIVER_IMAGE}"
+          ExecStart=/usr/bin/bash -c "/usr/local/bin/oot-ice load  ${REGISTRY}/${DRIVER_IMAGE}:${TAG}"
+          ExecStop=/usr/bin/bash -c "/usr/local/bin/oot-ice unload ${REGISTRY}/${DRIVER_IMAGE}:${TAG}"
           ExecStartPost=/usr/bin/bash -c "/usr/local/bin/ptp-config"
           StandardOutput=journal+console
 
@@ -134,7 +131,7 @@ END_OF_MACHINE_CONFIG
 CUSTOM_KERNEL=""
 APPLY_PATCHES="no"
 KERNEL_VER=""
-BUILD_RT="no"
+BUILD_RT="yes"
 OCP_VER=""
 KUBECONFIG=${KUBECONFIG:-""}
 
@@ -161,6 +158,7 @@ if [ $# -lt 1 ]; then
   print_usage
   exit 1
 fi
+
 DRIVER_VER=$1; shift
 
 # Try to get the OCP version from the cluster in KUBECONFIG
@@ -174,7 +172,9 @@ if [ -z ${OCP_VER} ]; then
 fi
 
 
-DRIVER_IMAGE="ice-${DRIVER_VER}"
+DRIVER_IMAGE="oot-ice-${DRIVER_VER}"
+MINOR_VER=$(echo "$OCP_VER" | cut -f2 -d.)
+TAG=${OCP_VER}
 
 if [ ! -z ${KERNEL_VER} ]; then
   # validate that the custom kernel rpm is here
@@ -182,13 +182,29 @@ if [ ! -z ${KERNEL_VER} ]; then
     echo "Custom kernel rpm \"${CUSTOM_KERNEL}\" not found"
     exit 1
   fi
-else
-  # Building for an OCP kernel.
+
+
+elif [[  "$MINOR_VER" -le 12 ]]; then # Building for an OCP release 4.12 <=. image name is changed as well as labels
   MACHINE_OS=$(oc adm release info --image-for=machine-os-content quay.io/openshift-release-dev/ocp-release:${OCP_VER}-x86_64)
+  BASE_IMAGE='registry.access.redhat.com/ubi8:latest'
   if [ ${BUILD_RT} == "yes" ]; then
     KERNEL_VER=$(oc image info -o json ${MACHINE_OS}  | jq -r ".config.config.Labels[\"com.coreos.rpm.kernel-rt-core\"]")
+    TAG="${OCP_VER}-rt"
   else
     KERNEL_VER=$(oc image info -o json ${MACHINE_OS}  | jq -r ".config.config.Labels[\"com.coreos.rpm.kernel\"]")
+  fi
+else # rhel9 based
+  MACHINE_OS=$(oc adm release info --image-for=rhel-coreos quay.io/openshift-release-dev/ocp-release:${OCP_VER}-x86_64)
+  BASE_IMAGE='registry.access.redhat.com/ubi9:latest'
+  if [ ! -z ${KERNEL_VER} ]; then
+    GET_DEVEL_RPM="yes"
+  elif [ ${BUILD_RT} == "yes" ]; then
+    KERNEL_VER=$(oc image info -o json ${MACHINE_OS}  | jq -r ".config.config.Labels[\"ostree.linux\"]")
+    KERNEL_VER="${KERNEL_VER}+rt"
+    # cant use a + sign in container image tag
+    TAG="${OCP_VER}-rt"
+  else
+    KERNEL_VER=$(oc image info -o json ${MACHINE_OS}  | jq -r ".config.config.Labels[\"ostree.linux\"]")
   fi
 fi
 
