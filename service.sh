@@ -5,20 +5,20 @@ ACTION=$1; shift
 IMAGE=$1; shift
 KERNEL=`uname -r`
 
-podman pull --tls-verify=false --authfile /var/lib/kubelet/config.json ${IMAGE}:${KERNEL} 2>&1
+podman pull --tls-verify=false --authfile /var/lib/kubelet/config.json ${IMAGE} 2>&1
 
 load_kmods() {
 
     podman run -i --privileged \
       -v /lib/modules/${KERNEL}/kernel/drivers/:/lib/modules/${KERNEL}/kernel/drivers/ \
       -v /var/lib/:/var/lib/ \
-      ${IMAGE}:${KERNEL} load.sh
+      ${IMAGE} load.sh
 }
 unload_kmods() {
     podman run -i --privileged \
       -v /lib/modules/${KERNEL}/kernel/drivers/:/lib/modules/${KERNEL}/kernel/drivers/ \
       -v /var/lib/:/var/lib/ \
-      ${IMAGE}:${KERNEL} unload.sh
+      ${IMAGE} unload.sh
 }
 
 case "${ACTION}" in
